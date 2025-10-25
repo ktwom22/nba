@@ -1,87 +1,108 @@
-import io
-import requests
 import pandas as pd
 import pulp
+import requests
+import io
+import csv
 
+SLOTS = ["PG", "SG", "SF", "PF", "C", "G", "F", "UTIL"]
+SALARY_CAP = 50000
+UNDER_4K_THRESHOLD = 4000
+MAX_UNDER_4K = 2
 
-# ✅ Load players from Google Sheet CSV
 def load_players(sheet_url):
-    """
-    Loads player data from a Google Sheet (CSV export link).
-    Returns a list of player dicts used for optimization.
-    """
-    try:
-        csv_data = requests.get(sheet_url).text
-        df = pd.read_csv(io.StringIO(csv_data))
+    data = requests.get(sheet_url).text
+    lines = data.strip().splitlines()
+    reader = csv.reader(lines)
 
-        # Normalize column names
-        df.columns = [c.strip().upper() for c in df.columns]
+    header_idx = None
+    for i, row in enumerate(reader):
+        joined = " ".join(row).upper()
+        if "PLAYER" in joined and "POS" in joined:
+            header_idx = i
+            break
+    if header_idx is None:
+        raise RuntimeError("Couldn't find header row in CSV")
 
-        # Ensure salary and projection are numeric
-        if "SALARY" in df.columns:
-            df["SALARY"] = (
-                df["SALARY"]
-                .astype(str)
-                .str.replace(r"[\$,]", "", regex=True)
-                .astype(float)
-            )
+    df = pd.read_csv(io.StringIO(data), skiprows=header_idx)
 
-        if "PROJECTED POINTS" in df.columns:
-            df["PROJ"] = df["PROJECTED POINTS"].astype(float)
-        elif "PROJ" not in df.columns:
-            df["PROJ"] = 0.0
+    rename_map = {}
+    for col in df.columns:
+        c = col.strip().upper()
+        if c == "POS": rename_map[col] = "POS"
+        elif "PLAYER" in c: rename_map[col] = "PLAYER"
+        elif "SALARY" in c: rename_map[col] = "SALARY"
+        elif "PROJECTED" in c or "PROJ" in c: rename_map[col] = "PROJECTED"
+        elif "DVP" in c: rename_map[col] = "DVP"
+        elif "USAGE" in c: rename_map[col] = "USAGE"
+    df = df.rename(columns=rename_map)
 
-        # Ensure required columns exist
-        if "PLAYER" not in df.columns:
-            df["PLAYER"] = df.index.astype(str)
-        if "TEAM" not in df.columns:
-            df["TEAM"] = "UNK"
-        if "USAGE" not in df.columns:
-            df["USAGE"] = 0.0
+    df["SALARY"] = pd.to_numeric(df["SALARY"].replace({'\$':'', ',':''}, regex=True))
+    df["PROJECTED"] = pd.to_numeric(df["PROJECTED"], errors="coerce")
+    df["DVP"] = pd.to_numeric(df.get("DVP", 0))
+    df["USAGE"] = pd.to_numeric(df.get("USAGE", 0))
 
-        # Add an index for solver variable naming
-        df["idx"] = range(len(df))
+    df = df[df["SALARY"] > 0]
+    df = df[df["PROJECTED"] > 0]
 
-        players = df.to_dict(orient="records")
-        return players
-    except Exception as e:
-        print(f"Error loading players: {e}")
-        return []
+    players = []
+    for idx, row in df.iterrows():
+        players.append({
+            "idx": int(idx),
+            "PLAYER": str(row["PLAYER"]),
+            "POS": str(row["POS"]).upper(),
+            "TEAM": row.get("TEAM",""),
+            "SALARY": float(row["SALARY"]),
+            "PROJECTED": float(row["PROJECTED"]),
+            "DVP": float(row.get("DVP",0)),
+            "USAGE": float(row.get("USAGE",0))
+        })
+    return players
 
+def player_fits_slot(pos, slot):
+    allowed = {
+        "PG": ["PG"], "SG": ["SG"], "SF": ["SF"], "PF": ["PF"], "C": ["C"],
+        "G": ["PG","SG"], "F": ["SF","PF"], "UTIL": ["PG","SG","SF","PF","C"]
+    }
+    return any(a in pos for a in allowed[slot])
 
-# ✅ Solve one lineup
 def solve_one(players, exclusion_sets):
+    prob = pulp.LpProblem("DK_Lineup", pulp.LpMaximize)
+    x = {(p["idx"], s): pulp.LpVariable(f"x_{p['idx']}_{s}", cat="Binary")
+         for p in players for s in SLOTS if player_fits_slot(p["POS"], s)}
+
+    # Weight projected points by DVP and Usage
+    prob += pulp.lpSum(x[i,s] * (p["PROJECTED"] + 0.1*p["DVP"] + 0.1*p["USAGE"])
+                       for p in players for s in SLOTS if (i:=p["idx"], s) in x)
+
+    for s in SLOTS:
+        prob += pulp.lpSum(x[i,s] for p in players if (i:=p["idx"], s) in x) == 1
+
     for p in players:
-        p["proj"] = float(p.get("proj") or 0)
-        p["salary"] = float(p.get("salary") or 0)
+        prob += pulp.lpSum(x[p["idx"],s] for s in SLOTS if (p["idx"], s) in x) <= 1
 
-    prob = pulp.LpProblem("DFS", pulp.LpMaximize)
-    x = {p["idx"]: pulp.LpVariable(f"x_{p['idx']}", cat="Binary") for p in players}
+    prob += pulp.lpSum(x[i,s]*p["SALARY"] for p in players for s in SLOTS if (i:=p["idx"], s) in x) <= SALARY_CAP
+    prob += pulp.lpSum(x[i,s] for p in players if p["SALARY"] < UNDER_4K_THRESHOLD
+                       for s in SLOTS if (i:=p["idx"], s) in x) <= MAX_UNDER_4K
 
-    prob += pulp.lpSum([p["proj"] * x[p["idx"]] for p in players]), "TotalProjectedPoints"
-    prob += pulp.lpSum([p["salary"] * x[p["idx"]] for p in players]) <= 50000, "SalaryCap"
-    prob += pulp.lpSum([x[p["idx"]] for p in players]) == 8, "RosterSize"
-
-    for excl in exclusion_sets:
-        prob += pulp.lpSum([x[p["idx"]] for p in players if p["PLAYER"] in excl]) <= len(excl) - 1
+    for E in exclusion_sets:
+        prob += pulp.lpSum(x[i,s] for i in E for s in SLOTS if (i,s) in x) <= len(E)-1
 
     solver = pulp.PULP_CBC_CMD(msg=False)
-    prob.solve(solver)
+    result = prob.solve(solver)
+    if pulp.LpStatus[result] != "Optimal": return None
 
-    lineup = [p for p in players if pulp.value(x[p["idx"]]) == 1]
-    total_salary = sum(p["salary"] for p in lineup)
-    total_proj = sum(p["proj"] for p in lineup)
-    return lineup, total_salary, total_proj
+    chosen = {s: next(p for p in players if p["idx"]==i) for (i,s), var in x.items() if pulp.value(var)==1}
+    lineup = [chosen[s] for s in SLOTS]
+    return {"lineup_players": lineup,
+            "salary": sum(p["SALARY"] for p in lineup),
+            "projected": sum(p["PROJECTED"] for p in lineup),
+            "player_idxs": set(p["idx"] for p in lineup)}
 
-
-# ✅ Generate multiple unique lineups
 def generate_top_k(players, k=10):
-    top_lineups = []
-    exclusion_sets = []
+    exclusion_sets, results = [], []
     for _ in range(k):
-        lineup, salary, proj = solve_one(players, exclusion_sets)
-        if not lineup:
-            break
-        top_lineups.append({"lineup": lineup, "salary": salary, "proj": proj})
-        exclusion_sets.append([p["PLAYER"] for p in lineup])
-    return top_lineups
+        sol = solve_one(players, exclusion_sets)
+        if not sol: break
+        results.append(sol)
+        exclusion_sets.append(sol["player_idxs"])
+    return results
