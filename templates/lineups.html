@@ -1,22 +1,24 @@
 <!DOCTYPE html>
 <html>
 <head>
-  <title>NBA DraftKings Lineups</title>
+  <title>Top NBA Lineups</title>
   <style>
-    body { font-family: Arial, sans-serif; background: #fafafa; margin: 2em; }
-    table { border-collapse: collapse; width: 100%; margin-bottom: 2em; background: white; }
-    th, td { border: 1px solid #ddd; padding: 8px; text-align: center; }
-    th { background-color: #333; color: white; }
-    h2 { color: #222; }
+    body { font-family: Arial, sans-serif; margin:2em; background:#fafafa; }
+    table { border-collapse: collapse; width: 100%; background: white; margin-bottom:2em; }
+    th, td { border:1px solid #ddd; padding:8px; text-align:center; }
+    th { background:#333; color:white; }
+    h2 { color:#333; }
   </style>
 </head>
 <body>
-  <h2>🏀 Top {{ lineups|length }} Optimized DraftKings Lineups</h2>
-  {% for lineup in lineups %}
-  <h3>Lineup #{{ lineup.num }} — Salary: ${{ lineup.salary }} | Projected: {{ lineup.proj }}</h3>
-  <table>
-    <tr><th>Slot</th><th>Player</th><th>Pos</th><th>Salary</th><th>Proj</th></tr>
-    {% for p in lineup.players %}
+  <h2>Top Lineups</h2>
+  {% for l in lineups %}
+    <h3>Lineup {{ l.num }} — Projected: {{ l.proj }} — Salary: ${{ l.salary }}</h3>
+    <table>
+      <tr>
+        <th>Slot</th><th>Player</th><th>Pos</th><th>Salary</th><th>Projected</th>
+      </tr>
+      {% for p in l.players %}
       <tr>
         <td>{{ p.slot }}</td>
         <td>{{ p.name }}</td>
@@ -24,8 +26,8 @@
         <td>${{ p.salary }}</td>
         <td>{{ p.proj }}</td>
       </tr>
-    {% endfor %}
-  </table>
+      {% endfor %}
+    </table>
   {% endfor %}
 </body>
 </html>

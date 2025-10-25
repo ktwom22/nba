@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>NBA DraftKings Player Pool</title>
+  <style>
+    body { font-family: Arial, sans-serif; margin:2em; background:#fafafa; }
+    table { border-collapse: collapse; width: 100%; background: white; }
+    th, td { border:1px solid #ddd; padding:8px; text-align:center; }
+    th { background:#333; color:white; }
+    input[type=number]{width:70px;}
+  </style>
+</head>
+<body>
+  <h2>NBA DraftKings Player Pool</h2>
+  <form method="POST" action="/optimize">
+    <table>
+      <tr>
+        <th>Include</th><th>Player</th><th>Pos</th><th>Team</th>
+        <th>Salary</th><th>Projected</th><th>DVP</th><th>Usage</th>
+      </tr>
+      {% for p in players %}
+      <tr>
+        <td><input type="checkbox" name="include_{{ loop.index0 }}" checked></td>
+        <td>{{ p.PLAYER }}</td>
+        <td>{{ p.POS }}</td>
+        <td>{{ p.TEAM }}</td>
+        <td><input type="number" name="salary_{{ loop.index0 }}" value="{{ p.SALARY }}"></td>
+        <td><input type="number" name="proj_{{ loop.index0 }}" value="{{ p.PROJECTED }}"></td>
+        <td><input type="number" name="dvp_{{ loop.index0 }}" value="{{ p.DVP }}"></td>
+        <td><input type="number" name="usage_{{ loop.index0 }}" value="{{ p.USAGE }}"></td>
+        <input type="hidden" name="player_{{ loop.index0 }}" value="{{ p.PLAYER }}">
+        <input type="hidden" name="pos_{{ loop.index0 }}" value="{{ p.POS }}">
+        <input type="hidden" name="team_{{ loop.index0 }}" value="{{ p.TEAM }}">
+      </tr>
+      {% endfor %}
+    </table>
+    <input type="hidden" name="player_count" value="{{ players|length }}">
+    <button type="submit" style="margin-top:1em; padding:10px 20px;">Generate Lineups</button>
+  </form>
+</body>
+</html>
