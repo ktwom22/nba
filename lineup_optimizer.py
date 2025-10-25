@@ -4,7 +4,11 @@ import pulp
 
 def load_players(csv_url):
     df = pd.read_csv(csv_url)
-    df.fillna(0, inplace=True)  # replace missing numbers with 0
+    df.columns = df.columns.str.strip()  # remove extra spaces
+    df['Salary'] = pd.to_numeric(df['Salary'], errors='coerce')
+    df['Projected'] = pd.to_numeric(df['Projected'], errors='coerce')
+    df['Usage'] = pd.to_numeric(df['Usage'], errors='coerce')
+    df.fillna(0, inplace=True)
     df.reset_index(inplace=True)
     df.rename(columns={"index": "idx"}, inplace=True)
     return df.to_dict(orient="records")
