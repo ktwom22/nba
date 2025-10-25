@@ -3,60 +3,66 @@ import requests
 from io import StringIO
 import pulp
 
-SALARY_CAP = 50000  # Adjust based on contest
-
 def load_players(sheet_url):
     data = requests.get(sheet_url).text
     df = pd.read_csv(StringIO(data))
     df.columns = [c.strip() for c in df.columns]
 
-    # Clean Salary column
-    if "Salary" in df.columns:
-        df["Salary"] = df["Salary"].replace('[\$,]', '', regex=True).astype(float)
+    # Clean Salary
+    df["Salary"] = df["Salary"].replace('[\$,]', '', regex=True).astype(float)
 
-    numeric_cols = ["PROJECTED POINTS", "Usage", "DVP", "Value"]
-    for col in numeric_cols:
+    # Ensure numeric columns
+    for col in ["PROJECTED POINTS", "Usage"]:
         if col in df.columns:
             df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0)
 
     if "idx" not in df.columns:
         df["idx"] = df.index
 
+    # Check required columns
+    for col in ["Player", "Team"]:
+        if col not in df.columns:
+            raise ValueError(f"CSV must have '{col}' column")
+
     return df.to_dict(orient="records")
 
-def solve_one(players, exclusion_sets=None):
-    if exclusion_sets is None:
-        exclusion_sets = []
+
+def solve_one(players, exclusion_set=None):
+    if exclusion_set is None:
+        exclusion_set = set()
 
     prob = pulp.LpProblem("LineupOptimization", pulp.LpMaximize)
-    x = {(p["idx"], s): pulp.LpVariable(f"x_{p['idx']}_{s}", cat="Binary")
-         for s in range(1) for p in players}
+
+    x = {}
+    for p in players:
+        if p.get("Include", True) and p["idx"] not in exclusion_set:
+            x[p["idx"]] = pulp.LpVariable(f"x_{p['idx']}", cat="Binary")
 
     # Objective: maximize projected points
-    prob += pulp.lpSum(x[p["idx"], 0] * p["PROJECTED POINTS"] for p in players)
+    prob += pulp.lpSum([x[p["idx"]] * p["PROJECTED POINTS"] for p in players if p["idx"] in x])
 
     # Salary cap
-    prob += pulp.lpSum(x[p["idx"], 0] * p["Salary"] for p in players) <= SALARY_CAP
+    prob += pulp.lpSum([x[p["idx"]] * p["Salary"] for p in players if p["idx"] in x]) <= 50000
 
-    # Only include players not excluded
-    for ex_set in exclusion_sets:
-        prob += pulp.lpSum(x[p["idx"], 0] for p in players if p["Player"] in ex_set) <= len(ex_set) - 1
-
+    # Solve
     prob.solve(pulp.PULP_CBC_CMD(msg=0))
-    lineup = [p for p in players if x[p["idx"], 0].varValue > 0.5]
-    return lineup
+
+    lineup = [p for p in players if x.get(p["idx"]) and x[p["idx"]].varValue > 0.5]
+    total_proj = sum(p["PROJECTED POINTS"] for p in lineup)
+    total_salary = sum(p["Salary"] for p in lineup)
+
+    return {"lineup": lineup, "proj": total_proj, "salary": total_salary}
+
 
 def generate_top_k(players, k=10):
-    lineups = []
-    exclusion_sets = []
+    used_indices = set()
+    top_lineups = []
     for _ in range(k):
-        lineup = solve_one(players, exclusion_sets)
-        if not lineup:
-            break
-        lineups.append({
-            "players": lineup,
-            "total_salary": sum(p["Salary"] for p in lineup),
-            "projected": sum(p["PROJECTED POINTS"] for p in lineup)
+        result = solve_one(players, exclusion_set=used_indices)
+        top_lineups.append({
+            "lineup": result["lineup"],
+            "proj": result["proj"],
+            "salary": result["salary"]
         })
-        exclusion_sets.append([p["Player"] for p in lineup])
-    return lineups
+        used_indices.update([p["idx"] for p in result["lineup"]])
+    return top_lineups
