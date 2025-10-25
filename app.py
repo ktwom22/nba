@@ -1,5 +1,4 @@
-# app.py
-from flask import Flask, request
+from flask import Flask, render_template, request
 from lineup_optimizer import load_players, generate_top_k
 import os
 
@@ -29,14 +28,26 @@ def optimize():
     if not results:
         return "<h3>⚠️ No feasible lineups found.</h3>"
 
-    html = "<h2>Top Lineups</h2>"
+    # Format for Jinja template
+    formatted = []
     for i, r in enumerate(results, 1):
-        html += f"<h3>Lineup #{i} — Salary: ${int(r['salary'])}, Projected: {round(r['projected'],2)}</h3><ul>"
-        for slot, p in zip(["PG","SG","SF","PF","C","G","F","UTIL"], r["lineup_players"]):
-            html += f"<li>{slot}: {p['PLAYER']} ({p['POS']}) — ${int(p['SALARY'])}, {round(p['PROJECTED'],1)} pts</li>"
-        html += "</ul><hr>"
-    html += "<a href='/'>Back</a>"
-    return html
+        formatted.append({
+            "num": i,
+            "salary": int(r["salary"]),
+            "proj": round(r["projected"], 2),
+            "players": [
+                {
+                    "slot": slot,
+                    "name": p["PLAYER"],
+                    "pos": p["POS"],
+                    "salary": int(p["SALARY"]),
+                    "proj": round(p["PROJECTED"], 1)
+                }
+                for slot, p in zip(["PG","SG","SF","PF","C","G","F","UTIL"], r["lineup_players"])
+            ]
+        })
+
+    return render_template("lineups.html", lineups=formatted)
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
