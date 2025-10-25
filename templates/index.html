@@ -1,68 +1,93 @@
 <!DOCTYPE html>
 <html>
 <head>
-  <title>NBA Lineup Optimizer</title>
-  <style>
-    body { font-family: Arial, sans-serif; margin: 20px; background: #fafafa; }
-    table { border-collapse: collapse; width: 100%; margin-top: 10px; background: #fff; }
-    th, td { border: 1px solid #ddd; padding: 6px; text-align: center; }
-    th { background-color: #333; color: white; cursor: pointer; }
-    input[type="text"] { width: 200px; margin-bottom: 10px; padding: 5px; }
-    button { margin-top: 15px; padding: 8px 16px; border: none; background: #333; color: #fff; cursor: pointer; border-radius: 6px; }
-    button:hover { background: #555; }
-  </style>
+    <title>Lineup Optimizer</title>
+    <link rel="stylesheet" href="https://cdn.datatables.net/1.13.6/css/jquery.dataTables.min.css">
+    <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
+    <script src="https://cdn.datatables.net/1.13.6/js/jquery.dataTables.min.js"></script>
 </head>
 <body>
-  <h2>🏀 NBA DraftKings Optimizer</h2>
-
-  <form method="POST" action="/optimize">
-    <label>Number of lineups: </label>
-    <input type="number" name="num_lineups" value="10" min="1" max="100" required>
-    <br><br>
-
-    <input type="text" id="searchBox" placeholder="Search players..." onkeyup="filterTable()">
-
-    <table id="playerTable">
-      <thead>
+<h2>Player Pool</h2>
+<table id="players" class="display">
+    <thead>
+    <tr>
+        <th>Include</th>
+        <th>Player</th>
+        <th>Team</th>
+        <th>Salary</th>
+        <th>Projected</th>
+        <th>Usage</th>
+    </tr>
+    </thead>
+    <tbody>
+    {% for p in players %}
         <tr>
-          <th>Include</th>
-          <th>POS</th>
-          <th>PLAYER</th>
-          <th>TEAM</th>
-          <th>SALARY</th>
-          <th>PROJ</th>
-          <th>DVP</th>
-          <th>USAGE</th>
+            <td><input type="checkbox" class="include-player" checked data-idx="{{ p.idx }}"></td>
+            <td>{{ p.Player }}</td>
+            <td>{{ p.Team }}</td>
+            <td>{{ p.Salary }}</td>
+            <td>{{ p['PROJECTED POINTS'] }}</td>
+            <td>{{ p.Usage }}</td>
         </tr>
-      </thead>
-      <tbody>
-        {% for p in players %}
-        <tr>
-          <td><input type="checkbox" name="include_player" value="{{ p.idx }}" checked></td>
-          <td>{{ p.POS }}</td>
-          <td>{{ p.PLAYER }}</td>
-          <td>{{ p.TEAM }}</td>
-          <td>${{ "%.0f"|format(p.Salary) }}</td>
-          <td>{{ "%.1f"|format(p["PROJECTED POINTS"]) }}</td>
-          <td>{{ "%.1f"|format(p.DVP) }}</td>
-          <td>{{ "%.1f"|format(p.Usage) }}</td>
-        </tr>
-        {% endfor %}
-      </tbody>
-    </table>
+    {% endfor %}
+    </tbody>
+</table>
 
-    <button type="submit">Generate Lineups</button>
-  </form>
+<label for="player_count">Number of lineups:</label>
+<input type="number" id="player_count" value="10" min="1" max="100">
+<button id="optimize-btn">Generate Lineups</button>
 
-  <script>
-    function filterTable() {
-      const query = document.getElementById("searchBox").value.toLowerCase();
-      const rows = document.querySelectorAll("#playerTable tbody tr");
-      rows.forEach(row => {
-        const name = row.cells[2].textContent.toLowerCase();
-        row.style.display = name.includes(query) ? "" : "none";
-      });
-    }
-  </script>
+<h2>Top Lineups</h2>
+<div id="results"></div>
+
+<script>
+    $(document).ready(function () {
+        var table = $('#players').DataTable({
+            "columnDefs": [
+                {"orderable": false, "targets": 0}  // Disable sorting on checkbox column
+            ]
+        });
+
+        $('#optimize-btn').click(function () {
+            var players = [];
+            table.rows().every(function () {
+                var row = this.data();
+                var idx = $(this.node()).find('input.include-player').data('idx');
+                var include = $(this.node()).find('input.include-player').prop('checked');
+                if (include) {
+                    players.push({
+                        "idx": idx,
+                        "Player": row[1],
+                        "Team": row[2],
+                        "Salary": parseFloat(row[3]),
+                        "PROJECTED POINTS": parseFloat(row[4]),
+                        "Usage": parseFloat(row[5])
+                    });
+                }
+            });
+
+            var player_count = parseInt($('#player_count').val()) || 10;
+
+            $.ajax({
+                url: '/optimize',
+                type: 'POST',
+                contentType: 'application/json',
+                data: JSON.stringify({players: players, player_count: player_count}),
+                success: function (data) {
+                    $('#results').empty();
+                    data.forEach(function (lineup, i) {
+                        var html = `<h3>Lineup #${i+1} — Salary: $${lineup.total_salary.toFixed(0)} | Projected: ${lineup.projected.toFixed(1)}</h3>`;
+                        html += `<table border="1"><tr><th>Player</th><th>Team</th><th>Salary</th><th>Projected</th><th>Usage</th></tr>`;
+                        lineup.players.forEach(function (p) {
+                            html += `<tr><td>${p.Player}</td><td>${p.Team}</td><td>${p.Salary}</td><td>${p['PROJECTED POINTS']}</td><td>${p.Usage}</td></tr>`;
+                        });
+                        html += `</table>`;
+                        $('#results').append(html);
+                    });
+                }
+            });
+        });
+    });
+</script>
 </body>
 </html>
