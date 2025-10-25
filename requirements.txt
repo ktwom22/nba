@@ -1,5 +1,5 @@
-flask
-pandas
-requests
-pulp
-gunicorn
+flask==2.3.4
+pandas==2.1.0
+requests==2.32.0
+pulp==2.7.0
+gunicorn==21.2.0
