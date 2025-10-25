@@ -1,10 +1,11 @@
 import pandas as pd
 import pulp
 import requests
+from io import StringIO  # ✅ FIXED: use Python's StringIO instead of pandas.compat
 
 def load_players(sheet_url):
     data = requests.get(sheet_url).text
-    df = pd.read_csv(pd.compat.StringIO(data))
+    df = pd.read_csv(StringIO(data))  # ✅ FIXED LINE
     df.fillna(0, inplace=True)
 
     # Normalize column names
