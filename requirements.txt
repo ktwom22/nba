@@ -1,5 +1,6 @@
-Flask==2.3.2
+Flask==2.3.3
 gunicorn==21.2.0
-requests==2.31.0
-pulp==2.7.0
 pandas==2.1.1
+numpy==1.27.5
+pulp==2.7.0
+requests==2.31.0
