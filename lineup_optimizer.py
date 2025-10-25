@@ -1,9 +1,8 @@
 # lineup_optimizer.py
-import pandas as pd
 import pulp
 import requests
-import io
 import csv
+from io import StringIO
 
 SLOTS = ["PG", "SG", "SF", "PF", "C", "G", "F", "UTIL"]
 SALARY_CAP = 50000
@@ -11,11 +10,12 @@ UNDER_4K_THRESHOLD = 4000
 MAX_UNDER_4K = 2
 
 def load_players(sheet_url):
-    """Load and clean player data from Google Sheet CSV."""
+    """Load and clean player data from Google Sheet CSV without pandas."""
     data = requests.get(sheet_url).text
     lines = data.strip().splitlines()
     reader = csv.reader(lines)
 
+    # find header row
     header_idx = None
     for i, row in enumerate(reader):
         joined = " ".join(row).upper()
@@ -25,38 +25,29 @@ def load_players(sheet_url):
     if header_idx is None:
         raise RuntimeError("Couldn't find header row in CSV")
 
-    df = pd.read_csv(io.StringIO(data), skiprows=header_idx)
-
-    rename_map = {}
-    for col in df.columns:
-        c = col.strip().upper()
-        if c == "POS":
-            rename_map[col] = "POS"
-        elif "PLAYER" in c:
-            rename_map[col] = "PLAYER"
-        elif "SALARY" in c:
-            rename_map[col] = "SALARY"
-        elif "PROJECTED" in c or "PROJ" in c:
-            rename_map[col] = "PROJECTED POINTS"
-    df = df.rename(columns=rename_map)
-
-    df["SALARY"] = df["SALARY"].apply(
-        lambda v: float(str(v).replace("$", "").replace(",", "").strip()) if pd.notna(v) else 0
-    )
-    df["PROJECTED POINTS"] = pd.to_numeric(df["PROJECTED POINTS"], errors="coerce")
-
-    df = df[df["SALARY"] > 0]
-    df = df[df["PROJECTED POINTS"] > 0]
-
+    rows = list(csv.reader(lines))
+    headers = rows[header_idx]
     players = []
-    for idx, row in df.iterrows():
-        players.append({
-            "idx": int(idx),
-            "PLAYER": str(row["PLAYER"]),
-            "POS": str(row["POS"]).upper(),
-            "SALARY": float(row["SALARY"]),
-            "PROJECTED": float(row["PROJECTED POINTS"]),
-        })
+
+    for row in rows[header_idx + 1:]:
+        row_dict = dict(zip(headers, row))
+        try:
+            name = row_dict.get("PLAYER") or row_dict.get("Player")
+            pos = (row_dict.get("POS") or row_dict.get("Pos") or "").upper()
+            salary_raw = row_dict.get("SALARY") or row_dict.get("Salary") or "0"
+            salary = float(salary_raw.replace("$", "").replace(",", "").strip())
+            proj_raw = row_dict.get("PROJECTED POINTS") or row_dict.get("Proj") or "0"
+            projected = float(proj_raw.strip())
+        except Exception:
+            continue
+        if salary > 0 and projected > 0:
+            players.append({
+                "idx": len(players),
+                "PLAYER": name,
+                "POS": pos,
+                "SALARY": salary,
+                "PROJECTED": projected
+            })
     return players
 
 def player_fits_slot(pos, slot):
@@ -80,19 +71,24 @@ def solve_one(players, exclusion_sets):
     prob += pulp.lpSum(x[i, s] * p["PROJECTED"]
                        for p in players for s in SLOTS if (i := p["idx"], s) in x)
 
+    # exactly one player per slot
     for s in SLOTS:
         prob += pulp.lpSum(x[i, s] for p in players if (i := p["idx"], s) in x) == 1
 
+    # a player only in one slot
     for p in players:
         prob += pulp.lpSum(x[p["idx"], s] for s in SLOTS if (p["idx"], s) in x) <= 1
 
+    # salary cap
     prob += pulp.lpSum(x[i, s] * p["SALARY"]
                        for p in players for s in SLOTS if (i := p["idx"], s) in x) <= SALARY_CAP
 
+    # max under $4k
     prob += pulp.lpSum(x[i, s] for p in players if p["SALARY"] < UNDER_4K_THRESHOLD
                        for s in SLOTS if (i := p["idx"], s) in x) <= MAX_UNDER_4K
 
-    for j, E in enumerate(exclusion_sets):
+    # exclude previous lineups
+    for E in exclusion_sets:
         prob += pulp.lpSum(x[i, s] for i in E for s in SLOTS if (i, s) in x) <= len(E) - 1
 
     solver = pulp.PULP_CBC_CMD(msg=False)
@@ -120,4 +116,3 @@ def generate_top_k(players, k=10):
         results.append(sol)
         exclusion_sets.append(sol["player_idxs"])
     return results
-
