@@ -30,6 +30,39 @@ def load_players(csv_url):
     # Convert to list of dicts
     return df.to_dict(orient="records")
 
+def load_players(csv_url):
+    # Load CSV
+    df = pd.read_csv(csv_url)
+
+    # Strip spaces in column names
+    df.columns = [c.strip().replace(" ", "_") for c in df.columns]
+
+    # Ensure numeric columns are properly converted
+    def clean_num(x):
+        if pd.isna(x):
+            return 0.0
+        if isinstance(x, str):
+            x = x.replace("$", "").replace(",", "").strip()
+        try:
+            return float(x)
+        except:
+            return 0.0
+
+    # Convert numeric columns
+    for col in ["Salary", "Usage", "PROJECTED_POINTS"]:
+        if col in df.columns:
+            df[col] = df[col].apply(clean_num)
+        else:
+            df[col] = 0.0
+
+    # Add unique index for optimizer
+    df.reset_index(inplace=True)
+    df.rename(columns={"index": "idx"}, inplace=True)
+
+    # Convert to list of dicts for your optimizer
+    return df.to_dict(orient="records")
+
+
 
 # Generate optimized lineups
 def generate_top_k(players, k=10):
