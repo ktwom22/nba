@@ -4,7 +4,7 @@ from lineup_optimizer import load_players, generate_top_k
 app = Flask(__name__)
 
 # ⚠️ Replace this with your actual public Google Sheet CSV export URL
-SHEET_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vTF0d2pT0myrD7vjzsB2IrEzMa3o1lylX5_GYyas_5UISsgOud7WffGDxSVq6tJhS45UaxFOX_FolyT/pub?gid=324730904&single=true&output=csv"
+SHEET_URL = "https://docs.google.com/spreadsheets/d/YOUR_SHEET_ID/export?format=csv"
 
 @app.route("/")
 def index():
@@ -17,14 +17,11 @@ def index():
 @app.route("/optimize", methods=["POST"])
 def optimize():
     try:
-        # Get player selections from form
         included_ids = request.form.getlist("include_player")
         all_players = load_players(SHEET_URL)
 
-        # Filter by checked players only
+        # Only include players that are checked
         selected_players = [p for p in all_players if str(p["idx"]) in included_ids]
-
-        # If nothing selected, use all players
         if not selected_players:
             selected_players = all_players
 

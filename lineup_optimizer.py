@@ -3,29 +3,23 @@ import pandas as pd
 import requests
 from io import StringIO
 
-# Load and clean players
 def load_players(sheet_url):
     data = requests.get(sheet_url).text
     df = pd.read_csv(StringIO(data))
     df.columns = [c.strip() for c in df.columns]
 
-    # Fill missing numeric fields
     numeric_cols = ["PROJECTED POINTS", "Salary", "Usage", "DVP", "Value"]
     for col in numeric_cols:
         if col in df.columns:
             df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0)
 
-    # Ensure idx column exists
     if "idx" not in df.columns:
         df["idx"] = df.index
 
     return df.to_dict(orient="records")
 
-# Build a single optimized lineup
 def solve_one(players):
     model = pulp.LpProblem("NBA_Optimizer", pulp.LpMaximize)
-
-    # Decision variable: x[p] = 1 if player is selected
     x = {p["idx"]: pulp.LpVariable(f"x_{p['idx']}", cat="Binary") for p in players}
 
     # Objective: maximize projected + DVP + usage bonus
@@ -41,7 +35,9 @@ def solve_one(players):
     model += pulp.lpSum(x[p["idx"]] * p["Salary"] for p in players) <= 50000
     model += pulp.lpSum(x[p["idx"]] for p in players) == 8
 
-    model.solve(pulp.PulpSolverDefault)
+    # ✅ Compatible solver call
+    solver = pulp.PULP_CBC_CMD(msg=False)
+    model.solve(solver)
 
     lineup = [p for p in players if x[p["idx"]].value() == 1]
     total_salary = sum(p["Salary"] for p in lineup)
@@ -55,12 +51,13 @@ def generate_top_k(players, k):
 
     for i in range(k):
         lineup = solve_one(players)
-        if not lineup:
+        if not lineup or len(lineup["players"]) == 0:
             break
+
         lineup["num"] = i + 1
         lineups.append(lineup)
 
-        # Exclude selected players from next run
+        # Exclude used players
         used_ids.update(p["idx"] for p in lineup["players"])
         players = [p for p in players if p["idx"] not in used_ids]
 
