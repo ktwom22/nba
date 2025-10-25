@@ -17,13 +17,14 @@ def optimize():
     for i in range(count):
         if request.form.get(f"include_{i}"):
             players.append({
+                "idx": i,  # <-- add unique index
                 "PLAYER": request.form[f"player_{i}"],
                 "POS": request.form[f"pos_{i}"],
                 "TEAM": request.form[f"team_{i}"],
                 "SALARY": float(request.form[f"salary_{i}"]),
                 "PROJECTED": float(request.form[f"proj_{i}"]),
-                "DVP": float(request.form.get(f"dvp_{i}",0)),
-                "USAGE": float(request.form.get(f"usage_{i}",0))
+                "DVP": float(request.form.get(f"dvp_{i}", 0)),
+                "USAGE": float(request.form.get(f"usage_{i}", 0))
             })
 
     if len(players) < 8:
