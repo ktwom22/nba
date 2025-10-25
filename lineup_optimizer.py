@@ -10,7 +10,6 @@ def load_players(sheet_url):
     """Load player data from Google Sheet CSV."""
     data = requests.get(sheet_url).text
     df = pd.read_csv(StringIO(data))
-
     df.columns = [c.strip().lower() for c in df.columns]
 
     players = []
@@ -36,10 +35,15 @@ def load_players(sheet_url):
 
 def solve_one(players, salary_cap=SALARY_CAP):
     """Solve one optimal lineup using linear programming."""
+    # ✅ Assign idxs if missing (e.g., from UI POST)
+    for i, p in enumerate(players):
+        if "idx" not in p:
+            p["idx"] = i
+
     roster_slots = ["PG", "SG", "SF", "PF", "C", "G", "F", "UTIL"]
     prob = pulp.LpProblem("NBA_Lineup", pulp.LpMaximize)
 
-    # Decision vars for eligible positions
+    # Decision variables
     x = {}
     for p in players:
         eligible_positions = str(p.get("pos", "")).split("/")
@@ -47,9 +51,9 @@ def solve_one(players, salary_cap=SALARY_CAP):
             if s == "UTIL" or any(ep in s for ep in eligible_positions):
                 x[(p["idx"], s)] = pulp.LpVariable(f"x_{p['idx']}_{s}", cat="Binary")
 
-    # Objective: maximize weighted projected points
+    # Objective: maximize weighted projection
     prob += pulp.lpSum(
-        x[p["idx"], s] * (
+        x[(p["idx"], s)] * (
             p.get("projected_points", 0)
             + 0.1 * p.get("dvp", 0)
             + 0.05 * p.get("usuage", 0)
@@ -58,15 +62,11 @@ def solve_one(players, salary_cap=SALARY_CAP):
         for p in players if p["idx"] == p_idx
     )
 
-    # Each roster slot filled by one player
+    # Constraints
     for s in roster_slots:
         prob += pulp.lpSum(x[p["idx"], s] for p in players if (p["idx"], s) in x) == 1
-
-    # Each player can only appear once
     for p in players:
         prob += pulp.lpSum(x[p["idx"], s] for s in roster_slots if (p["idx"], s) in x) <= 1
-
-    # Salary cap constraint
     prob += pulp.lpSum(
         x[p["idx"], s] * p["salary"]
         for p in players for s in roster_slots if (p["idx"], s) in x
@@ -80,7 +80,6 @@ def solve_one(players, salary_cap=SALARY_CAP):
             p = next(pl for pl in players if pl["idx"] == p_idx)
             selected.append(p)
 
-    # ✅ Optional improvement — valid 8-man lineup check
     total_salary = sum(p["salary"] for p in selected)
     if len(selected) != 8 or total_salary > salary_cap:
         return []
@@ -92,15 +91,18 @@ def solve_one(players, salary_cap=SALARY_CAP):
 def generate_top_k(players, k, salary_cap=SALARY_CAP):
     """Generate top k unique lineups."""
     all_lineups = []
-    exclusion_sets = []
+    used_player_sets = []
 
     for _ in range(k):
-        sol = solve_one([p for p in players if p["player"] not in exclusion_sets], salary_cap)
+        sol = solve_one(players, salary_cap)
         if not sol:
             break
 
         lineup_players = [p["player"] for p in sol]
-        exclusion_sets.extend(lineup_players)
+        if lineup_players in used_player_sets:
+            continue
+        used_player_sets.append(lineup_players)
+
         total_proj = sum(p["projected_points"] for p in sol)
         total_salary = sum(p["salary"] for p in sol)
 
