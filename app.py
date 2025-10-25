@@ -28,7 +28,6 @@ def optimize():
     if not results:
         return "<h3>⚠️ No feasible lineups found.</h3>"
 
-    # Format for Jinja template
     formatted = []
     for i, r in enumerate(results, 1):
         formatted.append({
