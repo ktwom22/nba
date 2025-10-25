@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>NBA DraftKings Lineups</title>
+  <style>
+    body { font-family: Arial; background: #fafafa; margin: 2em; }
+    table { border-collapse: collapse; width: 100%; margin-bottom: 2em; background: white; }
+    th, td { border: 1px solid #ddd; padding: 8px; text-align: center; }
+    th { background-color: #333; color: white; }
+  </style>
+</head>
+<body>
+  <h2>🏀 Top {{ lineups|length }} Optimized DraftKings Lineups</h2>
+  {% for lineup in lineups %}
+  <h3>Lineup #{{ lineup.num }} — Salary: ${{ lineup.salary }} | Projected: {{ lineup.proj }}</h3>
+  <table>
+    <tr><th>Slot</th><th>Player</th><th>Team</th><th>Salary</th><th>Proj</th><th>Usage</th></tr>
+    {% for p in lineup.players %}
+    <tr>
+      <td>{{ p.pos }}</td>
+      <td>{{ p.player }}</td>
+      <td>{{ p.team }}</td>
+      <td>${{ "%.0f"|format(p.salary) }}</td>
+      <td>{{ p.projected_points }}</td>
+      <td>{{ p.usuage }}</td>
+    </tr>
+    {% endfor %}
+  </table>
+  {% endfor %}
+</body>
+</html>
