@@ -3,47 +3,38 @@ import pulp
 
 
 def load_players(csv_url):
-    df = pd.read_csv(csv_url)
-    df.columns = df.columns.str.strip()  # remove extra spaces
-    df['Salary'] = pd.to_numeric(df['Salary'], errors='coerce')
-    df['Projected'] = pd.to_numeric(df['Projected'], errors='coerce')
-    df['Usage'] = pd.to_numeric(df['Usage'], errors='coerce')
-    df.fillna(0, inplace=True)
-    df.reset_index(inplace=True)
-    df.rename(columns={"index": "idx"}, inplace=True)
-    return df.to_dict(orient="records")
-
-def load_players(csv_url):
-    # Load CSV
+    # Read CSV
     df = pd.read_csv(csv_url)
 
-    # Strip spaces in column names
-    df.columns = [c.strip().replace(" ", "_") for c in df.columns]
+    # Clean column names
+    df.columns = df.columns.str.strip()
 
-    # Ensure numeric columns are properly converted
-    def clean_num(x):
-        if pd.isna(x):
-            return 0.0
-        if isinstance(x, str):
-            x = x.replace("$", "").replace(",", "").strip()
-        try:
-            return float(x)
-        except:
-            return 0.0
+    # Ensure numeric columns are properly parsed
+    def clean_numeric(col):
+        return pd.to_numeric(
+            df[col].astype(str).str.replace(r"[$,%\s]", "", regex=True),
+            errors="coerce"
+        )
 
-    # Convert numeric columns
-    for col in ["Salary", "Usage", "PROJECTED_POINTS"]:
+    for col in ["Salary", "Projected", "Usage"]:
         if col in df.columns:
-            df[col] = df[col].apply(clean_num)
+            df[col] = clean_numeric(col)
         else:
-            df[col] = 0.0
+            # If the column is missing, create it as 0
+            df[col] = 0
 
-    # Add unique index for optimizer
+    # Fill missing values
+    df.fillna(0, inplace=True)
+
+    # Add unique index
     df.reset_index(inplace=True)
     df.rename(columns={"index": "idx"}, inplace=True)
 
-    # Convert to list of dicts for your optimizer
-    return df.to_dict(orient="records")
+    # Convert to list of dicts for optimizer
+    players = df.to_dict(orient="records")
+
+    return players
+
 
 
 
