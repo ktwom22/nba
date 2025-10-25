@@ -4,7 +4,7 @@ from lineup_optimizer import load_players, generate_top_k
 app = Flask(__name__)
 
 # ✅ Replace with your real CSV export URL from Google Sheets
-SHEET_URL = "https://docs.google.com/spreadsheets/d/XXXXXXXXXXXX/pub?output=csv"
+SHEET_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vTF0d2pT0myrD7vjzsB2IrEzMa3o1lylX5_GYyas_5UISsgOud7WffGDxSVq6tJhS45UaxFOX_FolyT/pub?gid=324730904&single=true&output=csv"
 
 @app.route("/")
 def index():
