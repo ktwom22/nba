@@ -1,14 +1,14 @@
 import pandas as pd
 import pulp
 
-# Load player data from a CSV or Google Sheet
+
 def load_players(csv_url):
     df = pd.read_csv(csv_url)
 
-    # Normalize column names
-    df.columns = df.columns.str.strip().str.replace(" ", "_")
+    # Normalize column names: strip spaces, replace spaces with underscores
+    df.columns = [c.strip().replace(" ", "_") for c in df.columns]
 
-    # Clean numeric columns (remove $ and ,)
+    # Clean numeric columns
     def clean_num(x):
         if isinstance(x, str):
             x = x.replace("$", "").replace(",", "")
@@ -18,15 +18,16 @@ def load_players(csv_url):
             return None
 
     df["Salary"] = df["Salary"].apply(clean_num)
-    df["PROJECTED_POINTS"] = df["PROJECTED_POINTS"].apply(clean_num)
     df["Usage"] = df["Usage"].apply(clean_num)
+    df["PROJECTED_POINTS"] = df["PROJECTED_POINTS"].apply(clean_num)
 
-    # Add a unique ID for each player
+    # Add unique index
     df.reset_index(inplace=True)
     df.rename(columns={"index": "idx"}, inplace=True)
 
-    # Return as list of dicts
+    # Convert to list of dicts
     return df.to_dict(orient="records")
+
 
 
 # Generate optimized lineups
