@@ -4,30 +4,9 @@ import pulp
 
 def load_players(csv_url):
     df = pd.read_csv(csv_url)
-
-    # Normalize column names: remove spaces, strip
-    df.columns = [c.strip().replace(" ", "_") for c in df.columns]
-
-    # Convert Salary and other numeric fields
-    def clean_num(x):
-        if pd.isna(x):
-            return 0.0
-        if isinstance(x, str):
-            x = x.replace("$", "").replace(",", "")
-        try:
-            return float(x)
-        except:
-            return 0.0
-
-    df["Salary"] = df["Salary"].apply(clean_num)
-    df["Usage"] = df["Usage"].apply(clean_num)
-    df["PROJECTED_POINTS"] = df["PROJECTED_POINTS"].apply(clean_num)
-
-    # Add unique index for optimizer
+    df.fillna(0, inplace=True)  # replace missing numbers with 0
     df.reset_index(inplace=True)
     df.rename(columns={"index": "idx"}, inplace=True)
-
-    # Convert to list of dicts
     return df.to_dict(orient="records")
 
 def load_players(csv_url):
