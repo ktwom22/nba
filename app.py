@@ -1,4 +1,5 @@
-from flask import Flask, render_template, request
+# app.py
+from flask import Flask, request
 from lineup_optimizer import load_players, generate_top_k
 import os
 
@@ -28,27 +29,15 @@ def optimize():
     if not results:
         return "<h3>⚠️ No feasible lineups found.</h3>"
 
-    formatted = []
+    html = "<h2>Top Lineups</h2>"
     for i, r in enumerate(results, 1):
-        formatted.append({
-            "num": i,
-            "salary": int(r["salary"]),
-            "proj": round(r["projected"], 2),
-            "players": [
-                {
-                    "slot": slot,
-                    "name": p["PLAYER"],
-                    "pos": p["POS"],
-                    "salary": int(p["SALARY"]),
-                    "proj": round(p["PROJECTED"], 1)
-                }
-                for slot, p in zip(["PG","SG","SF","PF","C","G","F","UTIL"], r["lineup_players"])
-            ]
-        })
-
-    return render_template("lineups.html", lineups=formatted)
+        html += f"<h3>Lineup #{i} — Salary: ${int(r['salary'])}, Projected: {round(r['projected'],2)}</h3><ul>"
+        for slot, p in zip(["PG","SG","SF","PF","C","G","F","UTIL"], r["lineup_players"]):
+            html += f"<li>{slot}: {p['PLAYER']} ({p['POS']}) — ${int(p['SALARY'])}, {round(p['PROJECTED'],1)} pts</li>"
+        html += "</ul><hr>"
+    html += "<a href='/'>Back</a>"
+    return html
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
     app.run(debug=True, host="0.0.0.0", port=port)
-
