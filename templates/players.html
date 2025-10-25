@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>NBA Player Pool</title>
+  <style>
+    table { border-collapse: collapse; width: 100%; margin-top: 1em; }
+    th, td { border: 1px solid #ddd; padding: 8px; text-align: center; }
+    th { background: #333; color: white; }
+    input[type="text"], input[type="number"] { width: 100%; box-sizing: border-box; }
+  </style>
+</head>
+<body>
+  <h2>🏀 NBA Player Pool</h2>
+
+  <form action="/optimize" method="post">
+    <label for="player_count">Number of Lineups:</label>
+    <input type="number" id="player_count" name="player_count" value="10" min="1" max="100">
+
+    <table>
+      <thead>
+        <tr>
+          <th>Idx</th>
+          <th>Name</th>
+          <th>Position</th>
+          <th>Salary (Read-only)</th>
+          <th>Projected Points</th>
+          <th>Usage</th>
+          <th>DVP</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for p in players %}
+        <tr>
+          <td><input type="hidden" name="idx" value="{{ p.idx }}">{{ p.idx }}</td>
+          <td><input type="text" name="name" value="{{ p.PLAYER }}"></td>
+          <td><input type="text" name="pos" value="{{ p.POS }}"></td>
+          <td><input type="number" name="salary" value="{{ p.SALARY }}" readonly></td>
+          <td><input type="number" step="0.1" name="proj" value="{{ p.PROJECTED }}"></td>
+          <td><input type="number" step="0.1" name="usage" value="{{ p.USAGE }}"></td>
+          <td><input type="number" step="0.1" name="dvp" value="{{ p.DVP }}"></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    <button type="submit">Optimize Lineups</button>
+  </form>
+
+  <script>
+    // Simple client-side sort/search (optional)
+    // Can integrate DataTables or similar library later
+  </script>
+</body>
+</html>

@@ -1,50 +1,70 @@
 from flask import Flask, render_template, request
 from lineup_optimizer import load_players, generate_top_k
-import os
 
 app = Flask(__name__)
-SHEET_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vTF0d2pT0myrD7vjzsB2IrEzMa3o1lylX5_GYyas_5UISsgOud7WffGDxSVq6tJhS45UaxFOX_FolyT/pub?gid=324730904&single=true&output=csv"
 
-@app.route("/", methods=["GET"])
-def player_pool():
+# Example Google Sheet CSV URL
+SHEET_URL = "YOUR_GOOGLE_SHEET_CSV_URL"
+
+@app.route("/")
+def index():
     players = load_players(SHEET_URL)
-    return render_template("player_pool.html", players=players)
+    # Add a 'slot' field for table display/editing
+    for p in players:
+        p['slot'] = ""
+    return render_template("players.html", players=players)
 
 @app.route("/optimize", methods=["POST"])
 def optimize():
-    count = int(request.form.get("player_count"))
+    try:
+        count = int(request.form.get("player_count") or 10)
+    except ValueError:
+        count = 10
+
+    # Rebuild players list from table data
     players = []
-    for i in range(count):
-        if request.form.get(f"include_{i}"):
+    idxs = request.form.getlist("idx")
+    names = request.form.getlist("name")
+    positions = request.form.getlist("pos")
+    salaries = request.form.getlist("salary")
+    projected_points = request.form.getlist("proj")
+    usage = request.form.getlist("usage")
+    dvp = request.form.getlist("dvp")
+
+    for i in range(len(names)):
+        try:
             players.append({
-                "idx": i,  # <-- add unique index
-                "PLAYER": request.form[f"player_{i}"],
-                "POS": request.form[f"pos_{i}"],
-                "TEAM": request.form[f"team_{i}"],
-                "SALARY": float(request.form[f"salary_{i}"]),
-                "PROJECTED": float(request.form[f"proj_{i}"]),
-                "DVP": float(request.form.get(f"dvp_{i}", 0)),
-                "USAGE": float(request.form.get(f"usage_{i}", 0))
+                "idx": int(idxs[i]),
+                "PLAYER": names[i],
+                "POS": positions[i].upper(),
+                "SALARY": float(salaries[i]),
+                "PROJECTED": float(projected_points[i]),
+                "USAGE": float(usage[i]) if usage[i] else 0,
+                "DVP": float(dvp[i]) if dvp[i] else 0
             })
+        except Exception:
+            continue
 
-    if len(players) < 8:
-        return "<h3>❌ Not enough players selected.</h3>"
+    lineups = generate_top_k(players, k=count)
 
-    results = generate_top_k(players, 10)
+    # Format lineups for template
     formatted = []
-    for i,r in enumerate(results,1):
+    for num, l in enumerate(lineups, 1):
         formatted.append({
-            "num": i,
-            "salary": int(r["salary"]),
-            "proj": round(r["projected"],2),
-            "players":[
-                {"slot": slot, "name": p["PLAYER"], "pos": p["POS"],
-                 "salary": int(p["SALARY"]), "proj": round(p["PROJECTED"],1)}
-                for slot, p in zip(["PG","SG","SF","PF","C","G","F","UTIL"], r["lineup_players"])
+            "num": num,
+            "salary": l["salary"],
+            "proj": l["projected"],
+            "players": [
+                {
+                    "slot": s,
+                    "name": p["PLAYER"],
+                    "pos": p["POS"],
+                    "salary": p["SALARY"],
+                    "proj": p["PROJECTED"]
+                } for s, p in zip(["PG","SG","SF","PF","C","G","F","UTIL"], l["lineup_players"])
             ]
         })
     return render_template("lineups.html", lineups=formatted)
 
 if __name__ == "__main__":
-    port = int(os.environ.get("PORT",5000))
-    app.run(debug=True, host="0.0.0.0", port=port)
+    app.run(debug=True)
