@@ -2,40 +2,56 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>Lineup Optimizer</title>
+<title>NBA Lineup Optimizer</title>
 <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
 <link rel="stylesheet" href="https://cdn.datatables.net/1.13.6/css/jquery.dataTables.min.css">
 <script src="https://cdn.datatables.net/1.13.6/js/jquery.dataTables.min.js"></script>
+<style>
+  body { font-family: Arial, sans-serif; margin: 30px; background: #f8f8f8; }
+  table { background: white; }
+  th { background: #333; color: white; }
+  td, th { text-align: center; }
+  input[type=checkbox] { transform: scale(1.2); }
+</style>
 </head>
 <body>
-<h1>Lineup Optimizer</h1>
+<h1>🏀 NBA DraftKings Lineup Optimizer</h1>
 
-<label>Number of lineups: <input type="number" id="player_count" value="10" min="1"></label>
+<label>Number of Lineups:
+  <input type="number" id="player_count" value="10" min="1">
+</label>
 <button id="optimize">Generate Lineups</button>
 
+<hr>
 <table id="players-table" class="display">
-    <thead>
-        <tr>
-            <th>Include</th>
-            <th>Player</th>
-            <th>Team</th>
-            <th>Salary</th>
-            <th>Projected</th>
-            <th>Usage</th>
-        </tr>
-    </thead>
-    <tbody>
-    {% for p in players %}
-        <tr>
-            <td><input type="checkbox" class="include-player" data-idx="{{ p.idx }}" checked></td>
-            <td>{{ p.Player }}</td>
-            <td>{{ p.Team }}</td>
-            <td>{{ p.Salary }}</td>
-            <td>{{ p['PROJECTED POINTS'] }}</td>
-            <td>{{ p.Usage }}</td>
-        </tr>
-    {% endfor %}
-    </tbody>
+  <thead>
+    <tr>
+      <th>Include</th>
+      <th>POS</th>
+      <th>PLAYER</th>
+      <th>TEAM</th>
+      <th>OPP</th>
+      <th>DVP</th>
+      <th>Proj</th>
+      <th>Salary</th>
+      <th>Usage</th>
+    </tr>
+  </thead>
+  <tbody>
+  {% for p in players %}
+    <tr>
+      <td><input type="checkbox" class="include-player" data-idx="{{ p.idx }}" checked></td>
+      <td>{{ p.POS }}</td>
+      <td>{{ p.PLAYER }}</td>
+      <td>{{ p.TEAM }}</td>
+      <td>{{ p.OPP }}</td>
+      <td>{{ p.DVP }}</td>
+      <td>{{ p["PROJECTED POINTS"] }}</td>
+      <td>${{ "{:,.0f}".format(p.Salary) }}</td>
+      <td>{{ p.Usage }}</td>
+    </tr>
+  {% endfor %}
+  </tbody>
 </table>
 
 <h2>Optimized Lineups</h2>
@@ -43,50 +59,54 @@
 
 <script>
 $(document).ready(function() {
-    var table = $('#players-table').DataTable();
+  var table = $('#players-table').DataTable({ "pageLength": 20 });
 
-    $('#optimize').click(function() {
-        let players = [];
-        table.rows().every(function(rowIdx, tableLoop, rowLoop){
-            var data = this.data();
-            var include = $(this.node()).find('.include-player').prop('checked');
-            players.push({
-                idx: $(this.node()).find('.include-player').data('idx'),
-                Player: data[1],
-                Team: data[2],
-                Salary: parseFloat(data[3]),
-                "PROJECTED POINTS": parseFloat(data[4]),
-                Usage: parseFloat(data[5]),
-                Include: include
-            });
-        });
-
-        $.ajax({
-            url: "/optimize",
-            method: "POST",
-            contentType: "application/json",
-            data: JSON.stringify({
-                players: players,
-                player_count: $("#player_count").val()
-            }),
-            success: function(res) {
-                $("#lineups").empty();
-                if(res.error){
-                    $("#lineups").text("Error: " + res.error);
-                    return;
-                }
-                res.lineups.forEach(function(l,i){
-                    $("#lineups").append(`<h3>Lineup #${i+1} — Salary: $${l.salary.toFixed(0)} | Projected: ${l.proj.toFixed(1)}</h3>`);
-                    let html = '<table border="1"><tr><th>Player</th><th>Team</th><th>Salary</th><th>Projected</th><th>Usage</th></tr>';
-                    l.lineup.forEach(function(p){
-                        html += `<tr><td>${p.Player}</td><td>${p.Team}</td><td>${p.Salary}</td><td>${p['PROJECTED POINTS']}</td><td>${p.Usage}</td></tr>`;
-                    });
-                    html += '</table>';
-                    $("#lineups").append(html);
-                });
-            }
-        });
+  $('#optimize').click(function() {
+    let players = [];
+    table.rows().every(function(){
+      var row = this.node();
+      var data = this.data();
+      var include = $(row).find('.include-player').prop('checked');
+      players.push({
+        idx: $(row).find('.include-player').data('idx'),
+        POS: data[1],
+        PLAYER: data[2],
+        TEAM: data[3],
+        OPP: data[4],
+        DVP: parseFloat(data[5]),
+        "PROJECTED POINTS": parseFloat(data[6]),
+        Salary: parseFloat(data[7].replace(/\$|,/g, '')),
+        Usage: parseFloat(data[8]),
+        Include: include
+      });
     });
+
+    $.ajax({
+      url: "/optimize",
+      method: "POST",
+      contentType: "application/json",
+      data: JSON.stringify({
+        players: players,
+        player_count: $("#player_count").val()
+      }),
+      success: function(res) {
+        $("#lineups").empty();
+        if(res.error){
+          $("#lineups").text("Error: " + res.error);
+          return;
+        }
+        res.lineups.forEach(function(l,i){
+          $("#lineups").append(`<h3>Lineup #${i+1} — Salary: $${l.salary.toFixed(0)} | Projected: ${l.proj.toFixed(1)}</h3>`);
+          let html = '<table border="1"><tr><th>POS</th><th>Player</th><th>Team</th><th>Salary</th><th>Proj</th><th>Usage</th></tr>';
+          l.lineup.forEach(function(p){
+            html += `<tr><td>${p.POS}</td><td>${p.PLAYER}</td><td>${p.TEAM}</td><td>$${p.Salary.toFixed(0)}</td><td>${p["PROJECTED POINTS"]}</td><td>${p.Usage}</td></tr>`;
+          });
+          html += '</table>';
+          $("#lineups").append(html);
+        });
+      }
+    });
+  });
 });
 </script>
 </body>

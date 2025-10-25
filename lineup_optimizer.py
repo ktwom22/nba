@@ -8,21 +8,17 @@ def load_players(sheet_url):
     df = pd.read_csv(StringIO(data))
     df.columns = [c.strip() for c in df.columns]
 
-    # Clean Salary
+    # Clean Salary ($11,700.00 -> 11700)
     df["Salary"] = df["Salary"].replace('[\$,]', '', regex=True).astype(float)
 
-    # Ensure numeric columns
-    for col in ["PROJECTED POINTS", "Usage"]:
+    # Make sure numeric columns are numbers
+    numeric_cols = ["PROJECTED POINTS", "VALUE", "L5 AVG", "L10 AVG", "SZN AVG", "O/U", "TM POINTS", "Usage", "DVP"]
+    for col in numeric_cols:
         if col in df.columns:
             df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0)
 
     if "idx" not in df.columns:
         df["idx"] = df.index
-
-    # Check required columns
-    for col in ["Player", "Team"]:
-        if col not in df.columns:
-            raise ValueError(f"CSV must have '{col}' column")
 
     return df.to_dict(orient="records")
 
@@ -38,13 +34,19 @@ def solve_one(players, exclusion_set=None):
         if p.get("Include", True) and p["idx"] not in exclusion_set:
             x[p["idx"]] = pulp.LpVariable(f"x_{p['idx']}", cat="Binary")
 
-    # Objective: maximize projected points
-    prob += pulp.lpSum([x[p["idx"]] * p["PROJECTED POINTS"] for p in players if p["idx"] in x])
+    # Weighted objective using Projections, DVP (inverse), and Usage
+    prob += pulp.lpSum([
+        x[p["idx"]] * (
+            p["PROJECTED POINTS"] +
+            0.1 * (100 - p["DVP"]) +   # lower DVP means better matchup
+            0.2 * p["Usage"]
+        )
+        for p in players if p["idx"] in x
+    ])
 
     # Salary cap
     prob += pulp.lpSum([x[p["idx"]] * p["Salary"] for p in players if p["idx"] in x]) <= 50000
 
-    # Solve
     prob.solve(pulp.PULP_CBC_CMD(msg=0))
 
     lineup = [p for p in players if x.get(p["idx"]) and x[p["idx"]].varValue > 0.5]
@@ -59,6 +61,8 @@ def generate_top_k(players, k=10):
     top_lineups = []
     for _ in range(k):
         result = solve_one(players, exclusion_set=used_indices)
+        if not result["lineup"]:
+            break
         top_lineups.append({
             "lineup": result["lineup"],
             "proj": result["proj"],
