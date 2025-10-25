@@ -1,4 +1,3 @@
-# lineup_optimizer.py
 import pandas as pd
 import pulp
 import requests
@@ -11,7 +10,7 @@ UNDER_4K_THRESHOLD = 4000
 MAX_UNDER_4K = 2
 
 def load_players(sheet_url):
-    """Load and clean player data from Google Sheet CSV with DVP and Usage."""
+    """Load and clean player data from Google Sheet CSV."""
     data = requests.get(sheet_url).text
     lines = data.strip().splitlines()
     reader = csv.reader(lines)
@@ -27,7 +26,6 @@ def load_players(sheet_url):
 
     df = pd.read_csv(io.StringIO(data), skiprows=header_idx)
 
-    # Standardize column names
     rename_map = {}
     for col in df.columns:
         c = col.strip().upper()
@@ -36,30 +34,18 @@ def load_players(sheet_url):
         elif "PLAYER" in c:
             rename_map[col] = "PLAYER"
         elif "SALARY" in c:
-            rename_map[col] = "Salary"
+            rename_map[col] = "SALARY"
         elif "PROJECTED" in c or "PROJ" in c:
-            rename_map[col] = "PROJECTED POINTS"
-        elif "DVP" in c:
-            rename_map[col] = "DVP"
-        elif "USUAGE" in c or "USAGE" in c:
-            rename_map[col] = "USUAGE"
-
+            rename_map[col] = "PROJECTED"
+        elif "TEAM" in c:
+            rename_map[col] = "TEAM"
     df = df.rename(columns=rename_map)
 
-    # Clean numeric columns
-    df["Salary"] = df["Salary"].apply(
-        lambda v: float(str(v).replace("$", "").replace(",", "").strip()) if pd.notna(v) else 0
-    )
-    df["PROJECTED POINTS"] = pd.to_numeric(df["PROJECTED POINTS"], errors="coerce")
-    df["DVP"] = pd.to_numeric(df.get("DVP", 0), errors="coerce").fillna(0)
-    df["USUAGE"] = pd.to_numeric(df.get("USUAGE", 0), errors="coerce").fillna(0)
+    df["SALARY"] = df["SALARY"].apply(lambda v: float(str(v).replace("$", "").replace(",", "").strip()) if pd.notna(v) else 0)
+    df["PROJECTED"] = pd.to_numeric(df["PROJECTED"], errors="coerce")
 
-    df = df[df["Salary"] > 0]
-    df = df[df["PROJECTED POINTS"] > 0]
-
-    # Normalize DVP and Usage for weighting
-    max_dvp = df["DVP"].max() if not df["DVP"].empty else 1
-    max_usage = df["USUAGE"].max() if not df["USUAGE"].empty else 1
+    df = df[df["SALARY"] > 0]
+    df = df[df["PROJECTED"] > 0]
 
     players = []
     for idx, row in df.iterrows():
@@ -67,60 +53,40 @@ def load_players(sheet_url):
             "idx": int(idx),
             "PLAYER": str(row["PLAYER"]),
             "POS": str(row["POS"]).upper(),
-            "SALARY": float(row["Salary"]),
-            "PROJECTED": float(row["PROJECTED POINTS"]),
-            "DVP_NORM": float(row["DVP"]) / max_dvp,
-            "USAGE_NORM": float(row["USUAGE"]) / max_usage
+            "SALARY": float(row["SALARY"]),
+            "PROJECTED": float(row["PROJECTED"]),
+            "TEAM": str(row.get("TEAM", "")).upper()
         })
     return players
 
 def player_fits_slot(pos, slot):
     allowed = {
-        "PG": ["PG"],
-        "SG": ["SG"],
-        "SF": ["SF"],
-        "PF": ["PF"],
-        "C": ["C"],
-        "G": ["PG", "SG"],
-        "F": ["SF", "PF"],
-        "UTIL": ["PG", "SG", "SF", "PF", "C"]
+        "PG": ["PG"], "SG": ["SG"], "SF": ["SF"], "PF": ["PF"], "C": ["C"],
+        "G": ["PG", "SG"], "F": ["SF", "PF"], "UTIL": ["PG","SG","SF","PF","C"]
     }
     return any(a in pos for a in allowed[slot])
-
-def weighted_proj(player, dvp_weight=0.5, usage_weight=0.5):
-    """
-    Combines original projected points with DVP and Usage.
-    Higher DVP and Usage increase effective projected points.
-    """
-    return player["PROJECTED"] + dvp_weight * player["DVP_NORM"] + usage_weight * player["USAGE_NORM"]
 
 def solve_one(players, exclusion_sets):
     prob = pulp.LpProblem("DK_Lineup", pulp.LpMaximize)
     x = {(p["idx"], s): pulp.LpVariable(f"x_{p['idx']}_{s}", cat="Binary")
          for p in players for s in SLOTS if player_fits_slot(p["POS"], s)}
 
-    # Objective: maximize weighted projected points
-    prob += pulp.lpSum(x[i, s] * weighted_proj(p)
+    prob += pulp.lpSum(x[i, s] * p["PROJECTED"]
                        for p in players for s in SLOTS if (i := p["idx"], s) in x)
 
-    # One player per slot
     for s in SLOTS:
         prob += pulp.lpSum(x[i, s] for p in players if (i := p["idx"], s) in x) == 1
 
-    # Player only once per lineup
     for p in players:
         prob += pulp.lpSum(x[p["idx"], s] for s in SLOTS if (p["idx"], s) in x) <= 1
 
-    # Salary cap
     prob += pulp.lpSum(x[i, s] * p["SALARY"]
                        for p in players for s in SLOTS if (i := p["idx"], s) in x) <= SALARY_CAP
 
-    # Max players under $4k
     prob += pulp.lpSum(x[i, s] for p in players if p["SALARY"] < UNDER_4K_THRESHOLD
                        for s in SLOTS if (i := p["idx"], s) in x) <= MAX_UNDER_4K
 
-    # Exclusion sets to prevent duplicate lineups
-    for E in exclusion_sets:
+    for j, E in enumerate(exclusion_sets):
         prob += pulp.lpSum(x[i, s] for i in E for s in SLOTS if (i, s) in x) <= len(E) - 1
 
     solver = pulp.PULP_CBC_CMD(msg=False)
@@ -128,7 +94,6 @@ def solve_one(players, exclusion_sets):
     if pulp.LpStatus[result] != "Optimal":
         return None
 
-    # Build the lineup
     chosen = {s: next(p for p in players if p["idx"] == i)
               for (i, s), var in x.items() if pulp.value(var) == 1}
 
