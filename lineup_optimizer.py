@@ -1,72 +1,63 @@
-import pandas as pd
-import requests
-from io import StringIO
 import pulp
 
-def load_players(sheet_url):
-    data = requests.get(sheet_url).text
-    df = pd.read_csv(StringIO(data))
-    df.columns = [c.strip() for c in df.columns]
-
-    # Clean Salary ($11,700.00 -> 11700)
-    df["Salary"] = df["Salary"].replace('[\$,]', '', regex=True).astype(float)
-
-    # Make sure numeric columns are numbers
-    numeric_cols = ["PROJECTED POINTS", "VALUE", "L5 AVG", "L10 AVG", "SZN AVG", "O/U", "TM POINTS", "Usage", "DVP"]
-    for col in numeric_cols:
-        if col in df.columns:
-            df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0)
-
-    if "idx" not in df.columns:
-        df["idx"] = df.index
-
-    return df.to_dict(orient="records")
-
-
-def solve_one(players, exclusion_set=None):
-    if exclusion_set is None:
-        exclusion_set = set()
-
-    prob = pulp.LpProblem("LineupOptimization", pulp.LpMaximize)
-
-    x = {}
+def solve_one(players, exclusion_sets):
+    """
+    Solves one optimized lineup using linear programming (Pulp).
+    """
+    # ✅ Fix 1: Clean player data to prevent NoneType errors
     for p in players:
-        if p.get("Include", True) and p["idx"] not in exclusion_set:
-            x[p["idx"]] = pulp.LpVariable(f"x_{p['idx']}", cat="Binary")
+        p["proj"] = float(p.get("proj") or 0)
+        p["salary"] = float(p.get("salary") or 0)
 
-    # Weighted objective using Projections, DVP (inverse), and Usage
-    prob += pulp.lpSum([
-        x[p["idx"]] * (
-            p["PROJECTED POINTS"] +
-            0.1 * (100 - p["DVP"]) +   # lower DVP means better matchup
-            0.2 * p["Usage"]
-        )
-        for p in players if p["idx"] in x
-    ])
+    prob = pulp.LpProblem("DFS", pulp.LpMaximize)
 
-    # Salary cap
-    prob += pulp.lpSum([x[p["idx"]] * p["Salary"] for p in players if p["idx"] in x]) <= 50000
+    # Create binary variables for each player
+    x = {p["idx"]: pulp.LpVariable(f"x_{p['idx']}", cat="Binary") for p in players}
 
-    prob.solve(pulp.PULP_CBC_CMD(msg=0))
+    # ✅ Objective: maximize projected points (weighted if needed)
+    prob += pulp.lpSum([p["proj"] * x[p["idx"]] for p in players]), "TotalProjectedPoints"
 
-    lineup = [p for p in players if x.get(p["idx"]) and x[p["idx"]].varValue > 0.5]
-    total_proj = sum(p["PROJECTED POINTS"] for p in lineup)
-    total_salary = sum(p["Salary"] for p in lineup)
+    # Salary cap constraint
+    prob += pulp.lpSum([p["salary"] * x[p["idx"]] for p in players]) <= 50000, "SalaryCap"
 
-    return {"lineup": lineup, "proj": total_proj, "salary": total_salary}
+    # Roster size constraint (8-player DK lineup)
+    prob += pulp.lpSum([x[p["idx"]] for p in players]) == 8, "RosterSize"
+
+    # Avoid reusing players from exclusion sets (to create variety)
+    for excl in exclusion_sets:
+        prob += pulp.lpSum([x[p["idx"]] for p in players if p["PLAYER"] in excl]) <= len(excl) - 1
+
+    # ✅ Fix 2: use modern solver
+    solver = pulp.PULP_CBC_CMD(msg=False)
+    prob.solve(solver)
+
+    lineup = [p for p in players if pulp.value(x[p["idx"]]) == 1]
+    total_salary = sum(p["salary"] for p in lineup)
+    total_proj = sum(p["proj"] for p in lineup)
+
+    return lineup, total_salary, total_proj
 
 
 def generate_top_k(players, k=10):
-    used_indices = set()
+    """
+    Generates top K unique lineups by re-solving with exclusion constraints.
+    """
     top_lineups = []
+    exclusion_sets = []
+
     for _ in range(k):
-        result = solve_one(players, exclusion_set=used_indices)
-        if not result["lineup"]:
+        lineup, salary, proj = solve_one(players, exclusion_sets)
+
+        if not lineup:
             break
+
         top_lineups.append({
-            "lineup": result["lineup"],
-            "proj": result["proj"],
-            "salary": result["salary"]
+            "lineup": lineup,
+            "salary": salary,
+            "proj": proj
         })
-        used_indices.update([p["idx"] for p in result["lineup"]])
+
+        # Add current lineup to exclusion list to force variety
+        exclusion_sets.append([p["PLAYER"] for p in lineup])
+
     return top_lineups
